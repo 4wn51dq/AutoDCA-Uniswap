@@ -1,3 +1,20 @@
+#### Implementation of a simple investment strategy
+ - User creates an investment plan, can choose how often, how much and how long they want to invest.
+ - (via time-based upkeep/automation) the user's deposits are invested systematically, and are converted into assets.
+ - DCA (Dollar Cost Averaging) reduces timing risk by spreading purchase of asset over-time.
+
+ ### DCA
+ 1. Automates long-term buying behaviour
+  - instead of buying an asset all at once and waiting for prices to do sum shi 
+  - the 'interval' and 'investmentPerSwap' feature gives control to the user
+  - the contract buys the asset for them 
+ 2. The volatility impact
+  - this would help reduce the impact of volatility on net investment
+  - if prices fluctuate 
+  - The contract would also ensure buys occur regardless of market price 
+ 
+
+
 ## Foundry
 
 **Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
