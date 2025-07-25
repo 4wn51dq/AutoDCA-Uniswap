@@ -12,6 +12,16 @@
   - this would help reduce the impact of volatility on net investment
   - if prices fluctuate 
   - The contract would also ensure buys occur regardless of market price 
+  3. Where is 'averaging' in DCA?
+  - first question that comes to mind:
+  - averaging occurs in the amount of tokens being recieved per dollar, not how much is spent.
+  - the contract performs swap at regular intervals and each swap happens at the market rate of uniswap 
+  - still dont get whats happening?
+  4. DCs are averaged between the high prices and low prices of the asset(tokenB).
+  - the user's DC (for the asset) is getting averaged because the contract is investing to buy the asset at
+  different prices, at highs and at lows.
+  - This smooths out the average cost per token, instead of buying a token all at once at a bad price.
+  
  
 
 
