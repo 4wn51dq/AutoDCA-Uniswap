@@ -1,0 +1,4 @@
+The UniswapV2Factory is something called a 'factory contract' 
+- its responsible for creating liquidity pools of pairs of any two unique ERC20s
+- it deploys a new UniswapV2pair contracts and keeps track of all the created pairs
+
