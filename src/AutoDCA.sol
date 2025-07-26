@@ -71,6 +71,7 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
        mapping (bytes32 => DCAPlan) planByPlanId;
        mapping (bytes32 => address) userOfPlan;
        mapping (address => uint256) userAssets;
+       mapping (bytes32 => uint256) startTimeOfPlan;
 
        constructor (address stableCoin, address targetCoin, address router, address automator) {
               i_baseToken = stableCoin;
@@ -85,7 +86,7 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
               uint256 _interval,
               uint256 _investmentPerSwap) 
               external payable returns (DCAPlan memory newPlan) {
-                     require(_interval>0 && _interval< 4 weeks);
+                     require(_interval>0, "0 investment interval not allowed");
                      require(_investmentPerSwap>0, "must invest coins");
 
                      /**
@@ -105,6 +106,22 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
                      newPlan.remainingBalance = 0;
 
                      emit PlanCreated(msg.sender, _planId);
+       }
+
+       function initiateDCA(bytes32 planId) external {
+              DCAPlan memory plan = planByPlanId[planId];
+              require(msg.sender == userOfPlan[planId], "only user can initiate investment");
+              require(plan.swapsExecuted == 0, "already initiated");
+              require(startTimeOfPlan[planId] == 0, "already initiated");
+              require(plan.remainingBalance>0, "not enough deposits");
+              require(plan.remainingBalance>= plan.investmentPerSwap, "chunk investment exeeds total deposits");
+
+              planByPlanId[planId].swapsExecuted = 1;
+              planByPlanId[planId].remainingBalance-= planByPlanId[planId].investmentPerSwap;
+
+              this.swapTheTokens(planId);
+
+              startTimeOfPlan[planId] = block.timestamp;
        }
 
        function depositFunds(uint256 amount, bytes32 _planId) public {
@@ -155,7 +172,7 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
        // what would react to first investment made? 
        // gotta run this logic for each plan. 
 
-       function checkUpkeep(bytes calldata checkData) external view override returns (bool upKeepNeeded, bytes memory performData) {
+       function checkUpkeep(bytes calldata checkData) external view override returns (bool upkeepNeeded, bytes memory performData) {
               bytes32 planId = abi.decode(checkData, (bytes32));
               
               bool firstInvestmentMade;
@@ -163,14 +180,21 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
 
               if (planByPlanId[planId].swapsExecuted >0) {
                      firstInvestmentMade == true;
+              } 
+              if (block.timestamp == startTimeOfPlan[planId]+(planByPlanId[planId].interval)*(planByPlanId[planId].swapsExecuted)) {
+                     timeForNextExecution == true;
               }
+              upkeepNeeded = firstInvestmentMade && timeForNextExecution;
 
-              
-
+              performData = abi.encodePacked(planId);
        }
 
-       function performUpkeep(bytes calldata) public override {
+       function performUpkeep(bytes calldata performData) public override {
+              bytes32 planId = abi.decode(performData, (bytes32));
 
+              require(block.timestamp == startTimeOfPlan[planId]+(planByPlanId[planId].interval)*(planByPlanId[planId].swapsExecuted));
+              require(planByPlanId[planId].swapsExecuted>0);
+              this.swapTheTokens(planId);
        }
 
        function totalBaseInContract() public view returns (uint256) {
