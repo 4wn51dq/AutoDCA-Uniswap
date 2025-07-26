@@ -1,4 +1,4 @@
-//SPDX-License-Identifier
+//SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
@@ -15,7 +15,10 @@ abstract contract Parameters {
 interface IDCAEvents {
        event PlanCreated(address indexed user, bytes32 planId);
        event DepositMade(address indexed user, uint256 amount);
-       event SwapExecuted(address indexed user, uint256 amount, uint256 timestamp);
+       event SwapExecuted(bytes32 planId, uint256 amountIn, uint256 amountOut, uint256 timestamp);
+       event InitialisedInvestments(address indexed user, bytes32 planId, uint256 timestamp);
+       event InvestmentsHaulted(bytes32 planId, uint256 sessionNumber, uint256 investmentsOut);
+       // event ReInitializedInvestment
 }
 
 interface IUniswapV2RouterCustom {
@@ -65,13 +68,18 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
               uint256 investmentPerSwap;
               uint256 swapsExecuted;
               uint256 remainingBalance; 
+              uint256 sessions;
+              bool lastSessionRunning;
        }
+
+       enum DCAStatus {investmentsActive, investmentsAtHault, DCANotInititated}
 
        mapping (address => DCAPlan) userPlan;
        mapping (bytes32 => DCAPlan) planByPlanId;
        mapping (bytes32 => address) userOfPlan;
        mapping (address => uint256) userAssets;
        mapping (bytes32 => uint256) startTimeOfPlan;
+       mapping (bytes32 => DCAStatus) planStatus;
 
        constructor (address stableCoin, address targetCoin, address router, address automator) {
               i_baseToken = stableCoin;
@@ -100,10 +108,16 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
                      require(newPlan.swapsExecuted == 0 && newPlan.remainingBalance ==0, "");
                      userPlan[msg.sender] = newPlan;
                      
-                     newPlan.interval = _interval;
-                     newPlan.investmentPerSwap = _investmentPerSwap;
-                     newPlan.swapsExecuted = 0;
-                     newPlan.remainingBalance = 0;
+                     newPlan = DCAPlan({
+                            interval: _interval,
+                            investmentPerSwap: _investmentPerSwap,
+                            swapsExecuted: 0,
+                            remainingBalance: 0,
+                            sessions: 0,
+                            lastSessionRunning: false
+                     });
+
+                     planStatus[_planId] = DCAStatus.DCANotInititated;
 
                      emit PlanCreated(msg.sender, _planId);
        }
@@ -116,12 +130,18 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
               require(plan.remainingBalance>0, "not enough deposits");
               require(plan.remainingBalance>= plan.investmentPerSwap, "chunk investment exeeds total deposits");
 
-              planByPlanId[planId].swapsExecuted = 1;
-              planByPlanId[planId].remainingBalance-= planByPlanId[planId].investmentPerSwap;
+              plan.swapsExecuted = 1;
+              plan.remainingBalance-= planByPlanId[planId].investmentPerSwap;
+              planStatus[planId] = DCAStatus.investmentsActive;
+              plan.sessions++;
+              plan.lastSessionRunning = true;
+
 
               this.swapTheTokens(planId);
 
               startTimeOfPlan[planId] = block.timestamp;
+
+              emit InitialisedInvestments(msg.sender, planId, block.timestamp);
        }
 
        function depositFunds(uint256 amount, bytes32 _planId) public {
@@ -143,6 +163,8 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
 
        function swapTheTokens(bytes32 planId) external {
               DCAPlan memory plan = planByPlanId[planId];
+
+              require (planStatus[planId] != DCAStatus.investmentsAtHault, "investments are manually disabled");
 
               if(plan.swapsExecuted == 0) {
                      require(msg.sender == userOfPlan[planId]);
@@ -167,6 +189,16 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
                      address(this),
                      block.timestamp + 10 minutes
               );
+
+              emit SwapExecuted(planId, amount, amountOutMin, block.timestamp);
+              }
+
+       // automation would not work for the plan if the swaps executed is reset to 0. 
+
+       function haultInvestments(bytes32 planId) external {
+              require(msg.sender == userOfPlan[planId], "only user can make changed to the plan");
+              planByPlanId[planId].swapsExecuted = 0;
+              planByPlanId[planId].lastSessionRunning = false;
        }
 
        // what would react to first investment made? 
@@ -177,14 +209,15 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
               
               bool firstInvestmentMade;
               bool timeForNextExecution;
+              bool sessionIsRunning = planByPlanId[planId].lastSessionRunning;
 
               if (planByPlanId[planId].swapsExecuted >0) {
-                     firstInvestmentMade == true;
+                     firstInvestmentMade = true;
               } 
               if (block.timestamp == startTimeOfPlan[planId]+(planByPlanId[planId].interval)*(planByPlanId[planId].swapsExecuted)) {
-                     timeForNextExecution == true;
+                     timeForNextExecution = true;
               }
-              upkeepNeeded = firstInvestmentMade && timeForNextExecution;
+              upkeepNeeded = firstInvestmentMade && timeForNextExecution && sessionIsRunning;
 
               performData = abi.encodePacked(planId);
        }
