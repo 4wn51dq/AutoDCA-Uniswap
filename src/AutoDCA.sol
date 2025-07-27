@@ -3,22 +3,27 @@ pragma solidity ^0.8.20;
 
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {AutomationCompatibleInterface} from "../lib/chainlink-brownie-contracts/contracts/src/v0.8/automation/interfaces/AutomationCompatibleInterface.sol";
+import {UniswapV2Pair} from "./UniswapV2Pair.sol";
+import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
 
 abstract contract Parameters {
        address internal immutable i_baseToken;
        address internal immutable i_targetToken;
        address internal immutable i_uniswapv2router;
+       address internal immutable i_uniswapv2pair;
        address internal immutable i_automationRegistryAddress; // the keeper node address
+       address internal immutable i_pairAddress;
        uint256 internal constant PLAN_FEE = 1;
 }
 
 interface IDCAEvents {
        event PlanCreated(address indexed user, bytes32 planId);
        event DepositMade(address indexed user, uint256 amount);
-       event SwapExecuted(bytes32 planId, uint256 amountIn, uint256 amountOut, uint256 timestamp);
+       event SwapExecuted(bytes32 planId, uint256 amountIn, uint256 amountOut, uint256 timestamp, uint112 currentPrice);
        event InitialisedInvestments(address indexed user, bytes32 planId, uint256 timestamp);
        event InvestmentsHaulted(bytes32 planId, uint256 sessionNumber, uint256 investmentsOut);
        // event ReInitializedInvestment
+       // event SwapExecutedAtPrice(bytes32 planId, uint256 atTheTime, uint256 price);
 }
 
 interface IUniswapV2RouterCustom {
@@ -88,6 +93,8 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
               i_uniswapv2router = router;
 
               i_automationRegistryAddress = automator;
+
+              i_pairAddress = IUniswapV2Factory.getPair(i_baseToken, i_targetToken);
        }
 
        function createPlan(
@@ -190,8 +197,13 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
                      block.timestamp + 10 minutes
               );
 
-              emit SwapExecuted(planId, amount, amountOutMin, block.timestamp);
-              }
+
+
+              (uint112 USDC, uint112 WETH) = UniswapV2Pair(i_uniswapv2pair).getReserves();
+              uint112 currentAssetPrice = WETH*(1e18)/USDC;
+
+              emit SwapExecuted(planId, amount, amountOutMin, block.timestamp, currentAssetPrice);
+       }
 
        // automation would not work for the plan if the swaps executed is reset to 0. 
 
@@ -200,6 +212,8 @@ contract AutoDCAInvestmentTool is Parameters, IDCAEvents, AutomationCompatibleIn
               planByPlanId[planId].swapsExecuted = 0;
               planByPlanId[planId].lastSessionRunning = false;
        }
+
+       
 
        // what would react to first investment made? 
        // gotta run this logic for each plan. 
